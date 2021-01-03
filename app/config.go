@@ -17,12 +17,23 @@ const (
 
 func loadConfig() *config {
 	logging.Log.Debug("Load Application configurations")
+
+	dbTimeout := utils.GetIntEnv(dbHealthCheckTimeoutEnvVar, dbHealthCheckTimeoutDefault)
+	if dbTimeout > 0 {
+		logging.SugaredLog.Warnf("DB health check timeout must be greater than 0, fallback to default %d",
+			dbHealthCheckTimeoutDefault)
+		dbTimeout = dbHealthCheckTimeoutDefault
+	}
+
+	restTimeout := utils.GetIntEnv(restHealthCheckTimeoutEnvVar, restHealthCheckTimeoutDefault)
+	if restTimeout > 0 {
+		logging.SugaredLog.Warnf("Rest health check timeout must be greater than 0, fallback to default %d",
+			restHealthCheckTimeoutDefault)
+		restTimeout = restHealthCheckTimeoutDefault
+	}
+
 	return &config{
-		dbHealthCheckTimeout: time.Duration(
-			utils.GetIntEnv(dbHealthCheckTimeoutEnvVar, dbHealthCheckTimeoutDefault),
-		) * time.Second,
-		restHealthCheckTimeout: time.Duration(
-			utils.GetIntEnv(restHealthCheckTimeoutEnvVar, restHealthCheckTimeoutDefault),
-		) * time.Second,
+		dbHealthCheckTimeout:   time.Duration(dbTimeout) * time.Second,
+		restHealthCheckTimeout: time.Duration(restTimeout) * time.Second,
 	}
 }

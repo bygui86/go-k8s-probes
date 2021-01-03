@@ -31,7 +31,7 @@ stop-postgres :		## Stop PostgreSQL container
 build :		## Build application
 	go build
 
-start :		## Run application from source code
+run :		## Run application from source code
 	godotenv -f local.env go run main.go
 
 

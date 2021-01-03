@@ -18,7 +18,7 @@ Flexible solution to fastly implement Kubernetes probes in Golang
 1. Start application
 
     ```bash
-    make start
+    make run
     ```
 
 ## Endpoints

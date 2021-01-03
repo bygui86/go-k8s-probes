@@ -2,107 +2,85 @@ package tracing
 
 import (
 	"io"
-	"time"
 
 	"github.com/opentracing/opentracing-go"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/uber/jaeger-client-go"
-	jaegercfg "github.com/uber/jaeger-client-go/config"
-	jaegerlog "github.com/uber/jaeger-client-go/log"
-	jaegerlogzap "github.com/uber/jaeger-client-go/log/zap"
-	"github.com/uber/jaeger-lib/metrics"
-	jaegerprom "github.com/uber/jaeger-lib/metrics/prometheus"
+	jaegerCfg "github.com/uber/jaeger-client-go/config"
+	jaegerLogZap "github.com/uber/jaeger-client-go/log/zap"
+	jaegerMetrics "github.com/uber/jaeger-lib/metrics"
+	jaegerProm "github.com/uber/jaeger-lib/metrics/prometheus"
 
 	"github.com/bygui86/go-k8s-probes/logging"
 )
 
 /*
-	By default, the client sends traces via UDP to the agent at localhost:6831.
-	Use JAEGER_AGENT_HOST and JAEGER_AGENT_PORT to send UDP traces to a different host:port.
+	Environment variables:
+		JAEGER_DISABLED to enable/disable Jaeger Tracer (default false)
+		JAEGER_AGENT_HOST to set target Jaeger host (default localhost)
+		JAEGER_AGENT_PORT to set target Jaeger port (default 6831)
+		JAEGER_SAMPLER_TYPE to set Sampler type (default none)(*)
+		JAEGER_SAMPLER_PARAM to set Sampler param (default 0) (**)
+		JAEGER_REPORTER_MAX_QUEUE_SIZE to set max how many spans the reporter can keep in memory before it starts
+			dropping new spans (default 0). The queue is continuously drained by a background go-routine, as
+			fast as spans can be sent out of process.
+		JAEGER_REPORTER_LOG_SPANS to set Reporter LogSpans (default false)
+		JAEGER_REPORTER_FLUSH_INTERVAL to set Reporter flush interval (default 0s) (***)
+		JAEGER_SERVICE_NAME	to set service name on the side of Jaeger (default empty string)
 
-	If JAEGER_ENDPOINT is set, the client sends traces to the endpoint via HTTP, making the JAEGER_AGENT_HOST and
-	JAEGER_AGENT_PORT unused.
+	(*) JAEGER_SAMPLER_TYPE available values:
+			"const" (SamplerTypeConst) is the type of sampler that always makes the same decision.
+			"remote" (SamplerTypeRemote) is the type of sampler that polls Jaeger agent for sampling strategy.
+			"probabilistic" (SamplerTypeProbabilistic) is the type of sampler that samples traces with a certain fixed probability.
+			"ratelimiting" (SamplerTypeRateLimiting) is the type of sampler that samples only up to a fixed number of traces per second.
 
-	If JAEGER_ENDPOINT is secured, HTTP basic authentication can be performed by setting the JAEGER_USER and
-	JAEGER_PASSWORD environment variables.
+	(**) JAEGER_SAMPLER_PARAM available values:
+			for "const" sampler, 0 or 1 for always false/true respectively
+			for "probabilistic" sampler, a probability between 0 and 1
+			for "rateLimiting" sampler, the number of spans per second
+			for "remote" sampler, param is the same as for "probabilistic"
+				and indicates the initial sampling rate before the actual one
+				is received from the mothership.
+
+	(***) JAEGER_REPORTER_FLUSH_INTERVAL valid time units:
+			"ns", "us" (or "µs"), "ms", "s", "m", "h".
 */
 
-// Sample configuration for an easy start. Use constant sampling to sample every trace and enable LogSpan to log
-// every span to stdout. No metrics are produced.
-func InitSampleJaeger(serviceName string) (io.Closer, error) {
-	cfg := jaegercfg.Configuration{
-		Sampler: &jaegercfg.SamplerConfig{
-			Type:  jaeger.SamplerTypeConst,
-			Param: 1,
-		},
-		Reporter: &jaegercfg.ReporterConfig{
-			LogSpans:            true,
-			BufferFlushInterval: 1 * time.Second,
-		},
+/*
+	Use Zap logger to print out spans.
+	Use a Prometheus registerer to expose metrics.
+*/
+func InitTracer() (io.Closer, error) {
+	cfg, cfgErr := jaegerCfg.FromEnv()
+	if cfgErr != nil {
+		return nil, cfgErr
 	}
+	logging.SugaredLog.Debugf("Jaeger Configuration: %+v", cfg)
+	logging.SugaredLog.Debugf("Jaeger Sampler: %+v", cfg.Sampler)
+	logging.SugaredLog.Debugf("Jaeger Reporter: %+v", cfg.Reporter)
 
-	// Example logger and metrics factory. Use github.com/uber/jaeger-client-go/log
-	// and github.com/uber/jaeger-lib/metrics respectively to bind to real logging and metrics
-	// frameworks.
-	stdLogger := jaegerlog.StdLogger
-	nullMetricsFactory := metrics.NullFactory
-
-	// Initialize tracing with a logger and a metrics factory
-	closer, tracerErr := cfg.InitGlobalTracer(
-		serviceName,
-		jaegercfg.Logger(stdLogger),
-		jaegercfg.Metrics(nullMetricsFactory),
+	closer, tracerErr := initGlobalTracer(
+		cfg,
+		cfg.ServiceName,
+		jaegerLogZap.NewLogger(logging.Log),
+		jaegerProm.New(jaegerProm.WithRegisterer(prometheus.DefaultRegisterer)),
 	)
 	if tracerErr != nil {
 		return nil, tracerErr
 	}
 
-	logging.SugaredLog.Debugf("Jaeger global tracer registered: %t", opentracing.IsGlobalTracerRegistered())
+	logging.SugaredLog.Debugf("Jaeger global Tracer registered: %t", opentracing.IsGlobalTracerRegistered())
 	return closer, nil
 }
 
-// Sample configuration for testing. Use constant sampling to sample every trace and enable LogSpan to log every
-// span via configured Logger. Use a Prometheus registerer to expose metrics.
-func InitTestingJaeger(serviceName string) (io.Closer, error) {
-	cfg := jaegercfg.Configuration{
-		Sampler: &jaegercfg.SamplerConfig{
-			Type:  jaeger.SamplerTypeConst,
-			Param: 1,
-		},
-		Reporter: &jaegercfg.ReporterConfig{
-			LogSpans:            true,
-			BufferFlushInterval: 1 * time.Second,
-		},
-	}
+// initGlobalTracer initializes tracing with a service name, a logger and a metrics factory
+func initGlobalTracer(cfg *jaegerCfg.Configuration, serviceName string,
+	logger jaeger.Logger, metricsFactory jaegerMetrics.Factory) (io.Closer, error) {
 
-	// Initialize tracing with a logger and a metrics factory
 	closer, tracerErr := cfg.InitGlobalTracer(
 		serviceName,
-		jaegercfg.Logger(jaegerlogzap.NewLogger(logging.Log)),
-		jaegercfg.Metrics(jaegerprom.New(jaegerprom.WithRegisterer(prometheus.DefaultRegisterer))),
+		jaegerCfg.Logger(logger),
+		jaegerCfg.Metrics(metricsFactory),
 	)
-	if tracerErr != nil {
-		return nil, tracerErr
-	}
-
-	logging.SugaredLog.Debugf("Jaeger global tracer registered: %t", opentracing.IsGlobalTracerRegistered())
-	return closer, nil
-}
-
-// Recommended configuration for production.
-func InitProductionJaeger(serviceName string) (io.Closer, error) {
-	cfg := jaegercfg.Configuration{}
-
-	// Initialize tracing with a logger and a metrics factory
-	closer, tracerErr := cfg.InitGlobalTracer(
-		serviceName,
-		jaegercfg.Logger(jaegerlogzap.NewLogger(logging.Log)),
-		jaegercfg.Metrics(jaegerprom.New(jaegerprom.WithRegisterer(prometheus.DefaultRegisterer))),
-	)
-	if tracerErr != nil {
-		return nil, tracerErr
-	}
-
-	logging.SugaredLog.Debugf("Jaeger global tracer registered: %t", opentracing.IsGlobalTracerRegistered())
-	return closer, nil
+	return closer, tracerErr
 }

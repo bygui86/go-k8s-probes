@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 
-	"github.com/bygui86/go-k8s-probes/commons"
 	"github.com/bygui86/go-k8s-probes/database"
 	"github.com/bygui86/go-k8s-probes/kubernetes"
 	"github.com/bygui86/go-k8s-probes/logging"
@@ -67,7 +66,7 @@ func (a *Application) startMonitoring() {
 
 func initJaegerTracer() (io.Closer, error) {
 	logging.Log.Info("Initialize Jaeger Tracer")
-	closer, err := tracing.InitTestingJaeger(commons.ServiceName)
+	closer, err := tracing.InitTracer()
 	if err != nil {
 		return nil, err
 	}

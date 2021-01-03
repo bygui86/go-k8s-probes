@@ -7,12 +7,12 @@ import (
 	"github.com/openzipkin/zipkin-go/reporter"
 
 	"github.com/bygui86/go-k8s-probes/commons"
-	generalcfg "github.com/bygui86/go-k8s-probes/config"
+	generalCfg "github.com/bygui86/go-k8s-probes/config"
 	"github.com/bygui86/go-k8s-probes/logging"
 	"github.com/bygui86/go-k8s-probes/monitoring"
 )
 
-func New(generalCfg *generalcfg.Config) (*Application, error) {
+func New(generalCfg *generalCfg.Config) (*Application, error) {
 	logging.SugaredLog.Infof("Create new %s", commons.ServiceName)
 
 	logging.Log.Debug("Load application configurations")

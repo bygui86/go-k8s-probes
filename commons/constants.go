@@ -3,7 +3,7 @@ package commons
 import "time"
 
 const (
-	ServiceName = "product-service"
+	ServiceName = "products-service"
 
 	HttpServerHostFormat          = "%s:%d"
 	HttpServerWriteTimeoutDefault = time.Second * 15
