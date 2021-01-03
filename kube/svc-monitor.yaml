@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: go-k8s-probes
+spec:
+  selector:
+    matchLabels:
+      app: go-k8s-probes
+  namespaceSelector:
+    matchNames:
+      - postgres
+  endpoints:
+    - port: metrics
+      interval: 15s
+      scrapeTimeout: 14s

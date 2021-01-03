@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: go-k8s-probes
+spec:
+  selector:
+    app: go-k8s-probes
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+    - name: probes
+      port: 9091
+      targetPort: probes

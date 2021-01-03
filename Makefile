@@ -1,9 +1,5 @@
 
 # VARIABLES
-# -
-
-
-# ENVIRONMENT VARIABLES
 export GO111MODULE = on
 
 
@@ -31,8 +27,23 @@ stop-postgres :		## Stop PostgreSQL container
 build :		## Build application
 	go build
 
+test :		## Run tests (required a running PostgreSQL instance)
+	go test ./...
+
 run :		## Run application from source code
 	godotenv -f local.env go run main.go
+
+
+## containerisation
+
+__check-container-tag :
+	@[ "$(CONTAINER_TAG)" ] || ( echo "Missing container tag (CONTAINER_TAG), please define it and retry"; exit 1 )
+
+docker-build : __check-container-tag		## Build container
+	docker build . -t bygui86/go-k8s-probes:$(CONTAINER_TAG)
+
+docker-push : __check-container-tag		## Push container to Docker hub
+	docker push bygui86/go-metrics:$(CONTAINER_TAG)
 
 
 ## helpers
