@@ -10,7 +10,7 @@ import (
 	"github.com/bygui86/go-k8s-probes/logging"
 )
 
-func (s *Server) newRouter() {
+func (s *Server) setupRouter() {
 	logging.Log.Debug("Setup new Kubernetes router")
 
 	s.router = mux.NewRouter().StrictSlash(true)
@@ -18,16 +18,19 @@ func (s *Server) newRouter() {
 	s.router.HandleFunc(readinessEndpoint, s.readinessHandler)
 }
 
-func (s *Server) newHttpServer() {
+func (s *Server) setupHTTPServer() {
 	logging.SugaredLog.Debugf("Setup new Kubernetes HTTP server on port %d", s.config.restPort)
 
-	s.httpServer = &http.Server{
-		Addr:    fmt.Sprintf(commons.HttpServerHostFormat, s.config.restHost, s.config.restPort),
-		Handler: s.router,
-		// Good practice to set timeouts to avoid Slowloris attacks.
-		WriteTimeout: commons.HttpServerWriteTimeoutDefault,
-		ReadTimeout:  commons.HttpServerReadTimeoutDefault,
-		IdleTimeout:  commons.HttpServerIdelTimeoutDefault,
+	if s.config != nil {
+		s.httpServer = &http.Server{
+			Addr:    fmt.Sprintf(commons.HttpServerHostFormat, s.config.restHost, s.config.restPort),
+			Handler: s.router,
+			// Good practice to set timeouts to avoid Slowloris attacks.
+			WriteTimeout: commons.HttpServerWriteTimeoutDefault,
+			ReadTimeout:  commons.HttpServerReadTimeoutDefault,
+			IdleTimeout:  commons.HttpServerIdelTimeoutDefault,
+		}
+		return
 	}
 
 	logging.Log.Error("Kubernetes HTTP server creation failed: configurations not loaded")

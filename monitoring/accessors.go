@@ -12,6 +12,10 @@ func (s *Server) GetRestPort() int {
 	return s.config.restPort
 }
 
-func (s *Server) GetRouter() *mux.Router {
+func (s *Server) GetRestRouter() *mux.Router {
 	return s.router
+}
+
+func (s *Server) GetMetricsEndpoint() string {
+	return metricsEndpoint
 }

@@ -25,22 +25,29 @@ Flexible solution to fastly implement Kubernetes probes in Golang
 
 ### Application
 
-Root URL: `localhost:8080/`
+Root URL: `localhost:8080`
 
-| Method | URL | Description
+| Method | URL | Description |
 | --- | --- | --- |
-| GET | /products | Fetch list of products |
-| GET | /products/{id} | Fetch a product by ID |
-| POST | /products | Create a new product |
-| PUT | /products/{id} | Update an existing product retrieved by ID |
-| DELETE | /products/{id} | Delete a product by ID |
+| GET | /api/v1/products | Fetch list of products |
+| GET | /api/v1/products/{id} | Fetch a product by ID |
+| POST | /api/v1/products | Create a new product |
+| PUT | /api/v1/products/{id} | Update an existing product retrieved by ID |
+| DELETE | /api/v1/products/{id} | Delete a product by ID |
 
 ### Prometheus metrics
 
-URL: `localhost:9090/metrics`
+Root URL: `localhost:9090`
+
+| Method | URL | Description |
+| --- | --- | --- |
+| GET | /metrics | Fetch Prometheus metrics |
 
 ### Kubernetes probes
 
-Liveness URL: `localhost:9091/live`
+Root URL: `localhost:9091`
 
-Readiness URL: `localhost:9091/ready`
+| Method | URL | Description |
+| --- | --- | --- |
+| GET | /live | Fetch liveness info |
+| GET | /ready | Fetch readiness info |

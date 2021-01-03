@@ -125,6 +125,6 @@ func (a *Application) Shutdown(timeout time.Duration) {
 		}
 	}
 
-	logging.SugaredLog.Warnf("Start %d seconds of graceful shutdown period", timeout+1)
+	logging.SugaredLog.Warnf("Start %.0f seconds of graceful shutdown period", timeout.Seconds()+1)
 	time.Sleep(timeout + 1)
 }

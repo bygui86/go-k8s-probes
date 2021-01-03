@@ -17,8 +17,8 @@ func New() *Server {
 	server := &Server{
 		config: cfg,
 	}
-	server.newRouter()
-	server.newHTTPServer()
+	server.setupRouter()
+	server.setupHTTPServer()
 	return server
 }
 
@@ -41,7 +41,7 @@ func (s *Server) Start() {
 }
 
 func (s *Server) Shutdown(timeout time.Duration) {
-	logging.SugaredLog.Warnf("Shutdown monitoring server, timeout %d", timeout)
+	logging.SugaredLog.Warnf("Shutdown monitoring server, timeout %.0f seconds", timeout.Seconds())
 
 	if s.httpServer != nil && s.running {
 		// create a deadline to wait for.

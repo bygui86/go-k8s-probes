@@ -11,15 +11,18 @@ import (
 	"github.com/bygui86/go-k8s-probes/logging"
 )
 
-func (s *Server) newRouter() {
+const (
+	metricsEndpoint = "/metrics"
+)
+
+func (s *Server) setupRouter() {
 	logging.SugaredLog.Debugf("Setup new monitoring router")
 
 	s.router = mux.NewRouter().StrictSlash(true)
-
-	s.router.Handle("/metrics", promhttp.Handler())
+	s.router.Handle(metricsEndpoint, promhttp.Handler())
 }
 
-func (s *Server) newHTTPServer() {
+func (s *Server) setupHTTPServer() {
 	logging.SugaredLog.Debugf("Setup new monitoring HTTP server on port %d...", s.config.restPort)
 
 	if s.config != nil {

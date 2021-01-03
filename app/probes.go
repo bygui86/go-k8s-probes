@@ -2,22 +2,42 @@ package app
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io/ioutil"
 	"net"
+	"net/http"
+	"net/url"
 
 	"github.com/gorilla/mux"
 	"github.com/opentracing/opentracing-go"
 
 	"github.com/bygui86/go-k8s-probes/commons"
+	"github.com/bygui86/go-k8s-probes/database"
 	"github.com/bygui86/go-k8s-probes/kubernetes"
 	"github.com/bygui86/go-k8s-probes/logging"
 	"github.com/bygui86/go-k8s-probes/time_measure"
 )
 
+const (
+	headerAccept          = "Accept"
+	headerContentType     = "Content-Type"
+	headerApplicationJson = "application/json"
+)
+
+var restClient *http.Client
+
 func (a *Application) CheckStatus() map[string]*kubernetes.ComponentProbe {
 	logging.SugaredLog.Debugf("Check %s status", commons.ServiceName)
 
-	components := make(map[string]*kubernetes.ComponentProbe, 1)
+	if restClient == nil {
+		restClient = &http.Client{
+			Timeout: a.cfg.restHealthCheckTimeout,
+		}
+	}
+
+	components := make(map[string]*kubernetes.ComponentProbe, 4)
 	// required
 	components["db"] = a.checkDbStatus()
 	components["products"] = a.checkProductsStatus()
@@ -28,7 +48,6 @@ func (a *Application) CheckStatus() map[string]*kubernetes.ComponentProbe {
 	return components
 }
 
-// TODO TBD: check response / check code only / check response and code
 func (a *Application) checkDbStatus() *kubernetes.ComponentProbe {
 	timeMeasure := time_measure.StartTimeMeasure()
 
@@ -46,7 +65,7 @@ func (a *Application) checkDbStatus() *kubernetes.ComponentProbe {
 		if err != nil {
 			status = kubernetes.ResponseStatusError
 			code = kubernetes.ResponseCodeError
-			msg = err.Error()
+			msg = fmt.Sprintf("DB interface NOT HEALTHY: %s", err.Error())
 		} else {
 			status = kubernetes.ResponseStatusOk
 			code = kubernetes.ResponseCodeOk
@@ -87,19 +106,41 @@ func (a *Application) checkProductsStatus() *kubernetes.ComponentProbe {
 	if dialErr != nil {
 		status = kubernetes.ResponseStatusError
 		code = kubernetes.ResponseCodeError
-		msg = dialErr.Error()
+		msg = fmt.Sprintf("Products API NOT HEALTHY: %s", dialErr.Error())
 	} else {
 		logging.Log.Debug("Walk through endpoints")
-		walkErr := a.productsServer.GetRouter().Walk(routeWalker)
+		walkErr := a.productsServer.GetRestRouter().Walk(routeWalker)
 		if walkErr != nil {
 			status = kubernetes.ResponseStatusError
 			code = kubernetes.ResponseCodeError
-			msg = walkErr.Error()
+			msg = fmt.Sprintf("Products API NOT HEALTHY: %s", walkErr.Error())
 		} else {
 			status = kubernetes.ResponseStatusOk
 			code = kubernetes.ResponseCodeOk
-			msg = "Products healthy"
+			msg = "Products API healthy"
 		}
+	}
+
+	logging.Log.Debug("Check Rest response")
+	metricsErr := responseChecker(
+		"Products",
+		a.productsServer.GetRestHost(),
+		a.productsServer.GetRestPort(),
+		a.productsServer.GetProductsEndpoint(),
+		map[string]string{
+			headerAccept:      headerApplicationJson,
+			headerContentType: headerApplicationJson,
+		},
+		checkProductsResponse,
+	)
+	if metricsErr != nil {
+		status = kubernetes.ResponseStatusError
+		code = kubernetes.ResponseCodeError
+		msg = fmt.Sprintf("Monitoring NOT HEALTHY: %s", metricsErr.Error())
+	} else {
+		status = kubernetes.ResponseStatusOk
+		code = kubernetes.ResponseCodeOk
+		msg = "Monitoring healthy"
 	}
 
 	timeMeasure.StopTimeMeasure()
@@ -115,7 +156,15 @@ func (a *Application) checkProductsStatus() *kubernetes.ComponentProbe {
 	}
 }
 
-// TODO check response and code
+func checkProductsResponse(response *http.Response) error {
+	var products []*database.Product
+	unmarshErr := json.NewDecoder(response.Body).Decode(&products)
+	if unmarshErr != nil {
+		return unmarshErr
+	}
+	return nil
+}
+
 func (a *Application) checkMonitoringStatus() *kubernetes.ComponentProbe {
 	timeMeasure := time_measure.StartTimeMeasure()
 
@@ -132,14 +181,14 @@ func (a *Application) checkMonitoringStatus() *kubernetes.ComponentProbe {
 	if dialErr != nil {
 		status = kubernetes.ResponseStatusError
 		code = kubernetes.ResponseCodeError
-		msg = dialErr.Error()
+		msg = fmt.Sprintf("Monitoring API NOT HEALTHY: %s", dialErr.Error())
 	} else {
 		logging.Log.Debug("Walk through endpoints")
-		walkErr := a.productsServer.GetRouter().Walk(routeWalker)
+		walkErr := a.productsServer.GetRestRouter().Walk(routeWalker)
 		if walkErr != nil {
 			status = kubernetes.ResponseStatusError
 			code = kubernetes.ResponseCodeError
-			msg = walkErr.Error()
+			msg = fmt.Sprintf("Monitoring NOT HEALTHY: %s", walkErr.Error())
 		} else {
 			status = kubernetes.ResponseStatusOk
 			code = kubernetes.ResponseCodeOk
@@ -147,7 +196,27 @@ func (a *Application) checkMonitoringStatus() *kubernetes.ComponentProbe {
 		}
 	}
 
-	// TODO check for response!
+	logging.Log.Debug("Check Rest response")
+	metricsErr := responseChecker(
+		"Monitoring",
+		a.monitoringServer.GetRestHost(),
+		a.monitoringServer.GetRestPort(),
+		a.monitoringServer.GetMetricsEndpoint(),
+		map[string]string{
+			// headerAccept:      headerApplicationJson,
+			// headerContentType: headerApplicationJson,
+		},
+		checkMonitoringResponse,
+	)
+	if metricsErr != nil {
+		status = kubernetes.ResponseStatusError
+		code = kubernetes.ResponseCodeError
+		msg = fmt.Sprintf("Monitoring NOT HEALTHY: %s", metricsErr.Error())
+	} else {
+		status = kubernetes.ResponseStatusOk
+		code = kubernetes.ResponseCodeOk
+		msg = "Monitoring healthy"
+	}
 
 	timeMeasure.StopTimeMeasure()
 	milliSec, _ := timeMeasure.GetDeltaInMil().Float64()
@@ -160,6 +229,20 @@ func (a *Application) checkMonitoringStatus() *kubernetes.ComponentProbe {
 		TimeConsumed: milliSec,
 		IsRequired:   true,
 	}
+}
+
+func checkMonitoringResponse(response *http.Response) error {
+	bodyBytes, bodyErr := ioutil.ReadAll(response.Body)
+	if bodyErr != nil {
+		return fmt.Errorf("Monitoring response body reading failed: %s", bodyErr.Error())
+	}
+	bodyString := string(bodyBytes)
+	logging.SugaredLog.Debugf("Monitoring response: %s", bodyString)
+
+	if bodyString == "" {
+		return errors.New("empty Monitoring response")
+	}
+	return nil
 }
 
 func (a *Application) checkTracingStatus() *kubernetes.ComponentProbe {
@@ -203,22 +286,46 @@ func routeWalker(route *mux.Route, router *mux.Router, ancestors []*mux.Route) e
 	return nil
 }
 
-// TODO
-// func responseChecker() error {
-// 	// prepare request
-// 	endpointUrl := &url.URL{Path: rootProductsEndpoint}
-// 	path := s.baseURL.ResolveReference(endpointUrl)
-// 	restRequest, reqErr := http.NewRequest(http.MethodGet, path.String(), nil)
-// 	if reqErr != nil {
-// 		return reqErr
-// 	}
-// 	restRequest.Header.Set(headerAccept, headerApplicationJson)
-// 	restRequest.Header.Set(headerUserAgent, headerUserAgentClient)
-//
-// 	// get response
-// 	response, respErr := s.restClient.Do(restRequest)
-// 	if respErr != nil {
-// 		return respErr
-// 	}
-//
-// }
+func responseChecker(
+	system string,
+	host string, port int, endpoint string, headers map[string]string,
+	checkResponse func(*http.Response) error) error {
+
+	// prepare url
+	baseURL, urlErr := url.Parse(fmt.Sprintf("http://%s:%d", host, port))
+	if urlErr != nil {
+		return urlErr
+	}
+	endpointUrl := &url.URL{Path: endpoint}
+	path := baseURL.ResolveReference(endpointUrl)
+
+	// prepare request
+	restRequest, reqErr := http.NewRequest(http.MethodGet, path.String(), nil)
+	if reqErr != nil {
+		return reqErr
+	}
+	for key, val := range headers {
+		restRequest.Header.Set(key, val)
+	}
+
+	// get response
+	response, respErr := restClient.Do(restRequest)
+	if respErr != nil {
+		return respErr
+	}
+	if response.StatusCode != http.StatusOK {
+		logging.SugaredLog.Debugf("%s response code %d", system, response.StatusCode)
+		return fmt.Errorf("%s response code %d", system, response.StatusCode)
+	}
+	defer closeResponse(response)
+
+	// check response
+	return checkResponse(response)
+}
+
+func closeResponse(response *http.Response) {
+	err := response.Body.Close()
+	if err != nil {
+		logging.SugaredLog.Warnf("Error closing rest response body: %s", err.Error())
+	}
+}
