@@ -5,10 +5,8 @@ import (
 
 	"github.com/opentracing/opentracing-go"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/uber/jaeger-client-go"
 	jaegerCfg "github.com/uber/jaeger-client-go/config"
 	jaegerLogZap "github.com/uber/jaeger-client-go/log/zap"
-	jaegerMetrics "github.com/uber/jaeger-lib/metrics"
 	jaegerProm "github.com/uber/jaeger-lib/metrics/prometheus"
 
 	"github.com/bygui86/go-k8s-probes/logging"
@@ -59,11 +57,10 @@ func InitTracer() (io.Closer, error) {
 	logging.SugaredLog.Debugf("Jaeger Sampler: %+v", cfg.Sampler)
 	logging.SugaredLog.Debugf("Jaeger Reporter: %+v", cfg.Reporter)
 
-	closer, tracerErr := initGlobalTracer(
-		cfg,
+	closer, tracerErr := cfg.InitGlobalTracer(
 		cfg.ServiceName,
-		jaegerLogZap.NewLogger(logging.Log),
-		jaegerProm.New(jaegerProm.WithRegisterer(prometheus.DefaultRegisterer)),
+		jaegerCfg.Logger(jaegerLogZap.NewLogger(logging.Log)),
+		jaegerCfg.Metrics(jaegerProm.New(jaegerProm.WithRegisterer(prometheus.DefaultRegisterer))),
 	)
 	if tracerErr != nil {
 		return nil, tracerErr
@@ -71,16 +68,4 @@ func InitTracer() (io.Closer, error) {
 
 	logging.SugaredLog.Debugf("Jaeger global Tracer registered: %t", opentracing.IsGlobalTracerRegistered())
 	return closer, nil
-}
-
-// initGlobalTracer initializes tracing with a service name, a logger and a metrics factory
-func initGlobalTracer(cfg *jaegerCfg.Configuration, serviceName string,
-	logger jaeger.Logger, metricsFactory jaegerMetrics.Factory) (io.Closer, error) {
-
-	closer, tracerErr := cfg.InitGlobalTracer(
-		serviceName,
-		jaegerCfg.Logger(logger),
-		jaegerCfg.Metrics(metricsFactory),
-	)
-	return closer, tracerErr
 }
